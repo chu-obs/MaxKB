@@ -96,7 +96,10 @@
                       </el-button>
                       <template #dropdown>
                         <el-dropdown-menu>
-                          <el-dropdown-item @click="copyApplication(item)">
+                          <el-dropdown-item
+                            v-if="is_show_copy_button(item)"
+                            @click="copyApplication(item)"
+                          >
                             <AppIcon iconName="app-copy"></AppIcon>
                             复制</el-dropdown-item
                           >
@@ -124,13 +127,15 @@ import { ref, onMounted, reactive } from 'vue'
 import applicationApi from '@/api/application'
 import CreateApplicationDialog from './component/CreateApplicationDialog.vue'
 import CopyApplicationDialog from './component/CopyApplicationDialog.vue'
-import { MsgSuccess, MsgConfirm } from '@/utils/message'
+import { MsgSuccess, MsgConfirm, MsgAlert } from '@/utils/message'
 import { isAppIcon } from '@/utils/application'
 import { useRouter } from 'vue-router'
 import { isWorkFlow } from '@/utils/application'
-import useStore from '@/stores'
+import { ValidType, ValidCount } from '@/enums/common'
 import { t } from '@/locales'
-const { application } = useStore()
+import useStore from '@/stores'
+
+const { application, user, common } = useStore()
 const router = useRouter()
 
 const CopyApplicationDialogRef = ref()
@@ -148,9 +153,14 @@ const paginationConfig = reactive({
 const searchValue = ref('')
 
 function copyApplication(row: any) {
-  CopyApplicationDialogRef.value.open(row)
+  application.asyncGetApplicationDetail(row.id, loading).then((res: any) => {
+    CopyApplicationDialogRef.value.open({ ...res.data, model_id: res.data.model })
+  })
 }
 
+const is_show_copy_button = (row: any) => {
+  return user.userInfo ? user.userInfo.id == row.user_id : false
+}
 function settingApplication(row: any) {
   if (isWorkFlow(row.type)) {
     router.push({ path: `/application/${row.id}/workflow` })
@@ -160,7 +170,26 @@ function settingApplication(row: any) {
 }
 
 function openCreateDialog() {
-  CreateApplicationDialogRef.value.open()
+  if (user.isEnterprise()) {
+    CreateApplicationDialogRef.value.open()
+  } else {
+    MsgConfirm(`提示`, '社区版最多支持 5 个应用，如需拥有更多应用，请升级为专业版。', {
+      cancelButtonText: '确定',
+      confirmButtonText: '购买专业版',
+    })
+      .then(() => {
+        window.open('https://maxkb.cn/pricing.html', '_blank')
+      })
+      .catch(() => {
+        common
+          .asyncGetValid(ValidType.Application, ValidCount.Application, loading)
+          .then(async (res: any) => {
+            if (res?.data) {
+              CreateApplicationDialogRef.value.open()
+            }
+          })
+      })
+  }
 }
 
 function searchHandle() {
@@ -214,7 +243,7 @@ onMounted(() => {
   .status-tag {
     position: absolute;
     right: 16px;
-    top: 20px;
+    top: 13px;
   }
 }
 .dropdown-custom-switch {

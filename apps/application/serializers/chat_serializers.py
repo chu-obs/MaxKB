@@ -15,13 +15,11 @@ from io import BytesIO
 from typing import Dict
 
 import openpyxl
-import xlwt
 from django.core import validators
 from django.core.cache import caches
 from django.db import transaction, models
 from django.db.models import QuerySet, Q
-from django.http import HttpResponse, StreamingHttpResponse, HttpResponseServerError
-from openpyxl.workbook import Workbook
+from django.http import StreamingHttpResponse
 from rest_framework import serializers
 
 from application.flow.workflow_manage import Flow
@@ -258,7 +256,7 @@ class ChatSerializers(serializers.Serializer):
             if work_flow_version is None:
                 raise AppApiException(500, "应用未发布,请发布后再使用")
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, [],
+                           ChatInfo(chat_id, [],
                                     [],
                                     application, work_flow_version), timeout=60 * 30)
             return chat_id
@@ -271,7 +269,7 @@ class ChatSerializers(serializers.Serializer):
                                    application_id=application_id)]
             chat_id = str(uuid.uuid1())
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, dataset_id_list,
+                           ChatInfo(chat_id, dataset_id_list,
                                     [str(document.id) for document in
                                      QuerySet(Document).filter(
                                          dataset_id__in=dataset_id_list,
@@ -297,7 +295,7 @@ class ChatSerializers(serializers.Serializer):
                                       )
             work_flow_version = WorkFlowVersion(work_flow=work_flow)
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, [],
+                           ChatInfo(chat_id, [],
                                     [],
                                     application, work_flow_version), timeout=60 * 30)
             return chat_id
@@ -322,7 +320,7 @@ class ChatSerializers(serializers.Serializer):
         # 问题补全
         problem_optimization = serializers.BooleanField(required=True, error_messages=ErrMessage.boolean("问题补全"))
         # 模型相关设置
-        model_params_setting = serializers.JSONField(required=True)
+        model_params_setting = serializers.JSONField(required=False, error_messages=ErrMessage.dict("模型参数相关设置"))
 
         def is_valid(self, *, raise_exception=False):
             super().is_valid(raise_exception=True)
@@ -354,7 +352,7 @@ class ChatSerializers(serializers.Serializer):
                                       model_params_setting=self.data.get('model_params_setting'),
                                       user_id=user_id)
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, dataset_id_list,
+                           ChatInfo(chat_id, dataset_id_list,
                                     [str(document.id) for document in
                                      QuerySet(Document).filter(
                                          dataset_id__in=dataset_id_list,
@@ -453,8 +451,8 @@ class ChatRecordSerializer(serializers.Serializer):
         def page(self, current_page: int, page_size: int, with_valid=True):
             if with_valid:
                 self.is_valid(raise_exception=True)
-            order_by = 'create_time' if self.data.get('order_asc') is None or self.data.get(
-                'order_asc') else '-create_time'
+            order_by = '-create_time' if self.data.get('order_asc') is None or self.data.get(
+                'order_asc') else 'create_time'
             page = page_search(current_page, page_size,
                                QuerySet(ChatRecord).filter(chat_id=self.data.get('chat_id')).order_by(order_by),
                                post_records_handler=lambda chat_record: self.reset_chat_record(chat_record))

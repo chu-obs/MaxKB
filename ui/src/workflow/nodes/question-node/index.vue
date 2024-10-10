@@ -4,10 +4,6 @@
     <el-card shadow="never" class="card-never" style="--el-card-padding: 12px">
       <el-form
         @submit.prevent
-        @mousemove.stop
-        @mousedown.stop
-        @keydown.stop
-        @click.stop
         :model="form_data"
         label-position="top"
         require-asterisk-position="right"
@@ -16,7 +12,7 @@
         ref="questionNodeFormRef"
         hide-required-asterisk
       >
-      <el-form-item
+        <el-form-item
           label="AI 模型"
           prop="model_id"
           :rules="{
@@ -42,9 +38,8 @@
             </div>
           </template>
           <el-select
+            @change="model_change"
             @wheel="wheel"
-            @keydown="isKeyDown = true"
-            @keyup="isKeyDown = false"
             :teleported="false"
             v-model="form_data.model_id"
             placeholder="请选择 AI 模型"
@@ -111,14 +106,23 @@
           </el-select>
         </el-form-item>
         <el-form-item label="角色设定">
-          <el-input
+          <MdEditorMagnify
+            title="角色设定"
             v-model="form_data.system"
+            style="height: 100px"
+            @submitDialog="submitSystemDialog"
             placeholder="角色设定"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 3 }"
           />
         </el-form-item>
-        <el-form-item label="提示词" prop="prompt">
+        <el-form-item
+          label="提示词"
+          prop="prompt"
+          :rules="{
+            required: true,
+            message: '请输入提示词',
+            trigger: 'blur'
+          }"
+        >
           <template #label>
             <div class="flex align-center">
               <div class="mr-4">
@@ -133,23 +137,13 @@
               </el-tooltip>
             </div>
           </template>
-          <MdEditor
+          <MdEditorMagnify
             @wheel="wheel"
-            @keydown="isKeyDown = true"
-            @keyup="isKeyDown = false"
-            class="reply-node-editor"
-            style="height: 150px"
+            title="提示词"
             v-model="form_data.prompt"
-            :preview="false"
-            :toolbars="[]"
-            :footers="footers"
-          >
-            <template #defFooters>
-              <el-button text type="info" @click="openDialog">
-                <AppIcon iconName="app-magnify" style="font-size: 16px"></AppIcon>
-              </el-button>
-            </template>
-          </MdEditor>
+            style="height: 150px"
+            @submitDialog="submitDialog"
+          />
         </el-form-item>
         <el-form-item label="历史聊天记录">
           <el-input-number
@@ -179,15 +173,7 @@
         </el-form-item>
       </el-form>
     </el-card>
-    <!-- 回复内容弹出层 -->
-    <el-dialog v-model="dialogVisible" title="提示词" append-to-body>
-      <MdEditor v-model="cloneContent" :preview="false" :toolbars="[]" :footers="[]"> </MdEditor>
-      <template #footer>
-        <div class="dialog-footer mt-24">
-          <el-button type="primary" @click="submitDialog"> 确认 </el-button>
-        </div>
-      </template>
-    </el-dialog>
+
     <!-- 添加模版 -->
     <CreateModelDialog
       ref="createModelRef"
@@ -215,25 +201,30 @@ import { isLastNode } from '@/workflow/common/data'
 const AIModeParamSettingDialogRef = ref<InstanceType<typeof AIModeParamSettingDialog>>()
 
 const { model } = useStore()
-const isKeyDown = ref(false)
+
 const wheel = (e: any) => {
-  if (isKeyDown.value) {
+  if (e.ctrlKey === true) {
     e.preventDefault()
+    return true
   } else {
     e.stopPropagation()
     return true
   }
 }
-const dialogVisible = ref(false)
-const cloneContent = ref('')
-const footers: any = [null, '=', 0]
-function openDialog() {
-  cloneContent.value = form_data.value.prompt
-  dialogVisible.value = true
+
+const model_change = (model_id?: string) => {
+  if (model_id) {
+    AIModeParamSettingDialogRef.value?.reset_default(model_id, id)
+  } else {
+    refreshParam({})
+  }
 }
-function submitDialog() {
-  set(props.nodeModel.properties.node_data, 'prompt', cloneContent.value)
-  dialogVisible.value = false
+function submitDialog(val: string) {
+  set(props.nodeModel.properties.node_data, 'prompt', val)
+}
+
+function submitSystemDialog(val: string) {
+  set(props.nodeModel.properties.node_data, 'system', val)
 }
 const {
   params: { id }
@@ -255,7 +246,7 @@ function refreshParam(data: any) {
 
 const openAIParamSettingDialog = (modelId: string) => {
   if (modelId) {
-    AIModeParamSettingDialogRef.value?.open(modelId,form_data.value.model_params_setting)
+    AIModeParamSettingDialogRef.value?.open(modelId, id, form_data.value.model_params_setting)
   }
 }
 const form_data = computed({
@@ -323,10 +314,4 @@ onMounted(() => {
   set(props.nodeModel, 'validate', validate)
 })
 </script>
-<style lang="scss" scoped>
-.reply-node-editor {
-  :deep(.md-editor-footer) {
-    border: none !important;
-  }
-}
-</style>
+<style lang="scss" scoped></style>

@@ -4,10 +4,6 @@
     <h5 class="lighter mb-8">输入变量</h5>
     <el-form
       @submit.prevent
-      @mousemove.stop
-      @mousedown.stop
-      @keydown.stop
-      @click.stop
       ref="FunctionNodeFormRef"
       :model="chat_data"
       label-position="top"
@@ -16,7 +12,7 @@
     >
       <el-card shadow="never" class="card-never mb-16" style="--el-card-padding: 12px">
         <div v-if="chat_data.input_field_list?.length > 0">
-          <template v-for="(item, index) in chat_data.input_field_list" :key="index">
+          <template v-for="(item, index) in chat_data.input_field_list" :key="item.name">
             <el-form-item
               :label="item.name"
               :prop="'input_field_list.' + index + '.value'"
@@ -28,9 +24,9 @@
             >
               <template #label>
                 <div class="flex-between">
-                  <div>
-                    <span>
-                      <auto-tooltip :content="item.name">
+                  <div class="flex">
+                    <span class="flex">
+                      <auto-tooltip :content="item.name" style="max-width: 130px">
                         {{ item.name }}
                       </auto-tooltip>
                       <span class="danger" v-if="item.is_required">*</span></span
@@ -80,11 +76,14 @@ import NodeCascader from '@/workflow/common/NodeCascader.vue'
 import type { FormInstance } from 'element-plus'
 import { ref, computed, onMounted } from 'vue'
 import { isLastNode } from '@/workflow/common/data'
-
+import applicationApi from '@/api/application'
+import { app } from '@/main'
 const props = defineProps<{ nodeModel: any }>()
 
 const nodeCascaderRef = ref()
-
+const {
+  params: { id }
+} = app.config.globalProperties.$route as any
 const form = {
   input_field_list: [],
   is_result: false
@@ -112,12 +111,33 @@ const validate = () => {
   })
 }
 
+const update_field = () => {
+  applicationApi
+    .getFunctionLib(id, props.nodeModel.properties.node_data.function_lib_id)
+    .then((ok) => {
+      const old_input_field_list = props.nodeModel.properties.node_data.input_field_list
+      const merge_input_field_list = ok.data.input_field_list.map((item: any) => {
+        const find_field = old_input_field_list.find((old_item: any) => old_item.name == item.name)
+        if (find_field && find_field.source == item.source) {
+          return { ...item, value: JSON.parse(JSON.stringify(find_field.value)) }
+        }
+        return { ...item, value: item.source == 'reference' ? [] : '' }
+      })
+      set(props.nodeModel.properties.node_data, 'input_field_list', merge_input_field_list)
+      set(props.nodeModel.properties, 'status', ok.data.is_active ? 200 : 500)
+    })
+    .catch((err) => {
+      set(props.nodeModel.properties, 'status', 500)
+    })
+}
+
 onMounted(() => {
   if (typeof props.nodeModel.properties.node_data?.is_result === 'undefined') {
     if (isLastNode(props.nodeModel)) {
       set(props.nodeModel.properties.node_data, 'is_result', true)
     }
   }
+  update_field()
   set(props.nodeModel, 'validate', validate)
 })
 </script>

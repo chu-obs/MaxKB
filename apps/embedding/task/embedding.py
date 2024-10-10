@@ -6,7 +6,7 @@
     @date：2024/8/19 14:13
     @desc:
 """
-
+import datetime
 import logging
 import traceback
 from typing import List
@@ -17,7 +17,7 @@ from django.db.models import QuerySet
 from common.config.embedding_config import ModelManage
 from common.event import ListenerManagement, UpdateProblemArgs, UpdateEmbeddingDatasetIdArgs, \
     UpdateEmbeddingDocumentIdArgs
-from dataset.models import Document
+from dataset.models import Document, Status
 from ops import celery_app
 from setting.models import Model
 from setting.models_provider import get_model
@@ -26,10 +26,15 @@ max_kb_error = logging.getLogger("max_kb_error")
 max_kb = logging.getLogger("max_kb")
 
 
-def get_embedding_model(model_id):
-    model = QuerySet(Model).filter(id=model_id).first()
-    embedding_model = ModelManage.get_model(model_id,
-                                            lambda _id: get_model(model))
+def get_embedding_model(model_id, exception_handler=lambda e: max_kb_error.error(
+    f'获取向量模型失败：{str(e)}{traceback.format_exc()}')):
+    try:
+        model = QuerySet(Model).filter(id=model_id).first()
+        embedding_model = ModelManage.get_model(model_id,
+                                                lambda _id: get_model(model))
+    except Exception as e:
+        exception_handler(e)
+        raise e
     return embedding_model
 
 
@@ -59,8 +64,27 @@ def embedding_by_document(document_id, model_id):
     @param model_id 向量模型
     :return: None
     """
-    embedding_model = get_embedding_model(model_id)
+
+    def exception_handler(e):
+        QuerySet(Document).filter(id=document_id).update(
+            **{'status': Status.error, 'update_time': datetime.datetime.now()})
+        max_kb_error.error(
+            f'获取向量模型失败：{str(e)}{traceback.format_exc()}')
+
+    embedding_model = get_embedding_model(model_id, exception_handler)
     ListenerManagement.embedding_by_document(document_id, embedding_model)
+
+
+@celery_app.task(name='celery:embedding_by_document_list')
+def embedding_by_document_list(document_id_list, model_id):
+    """
+    向量化文档
+    @param document_id_list: 文档id列表
+    @param model_id 向量模型
+    :return: None
+    """
+    for document_id in document_id_list:
+        embedding_by_document.delay(document_id, model_id)
 
 
 @celery_app.task(base=QueueOnce, once={'keys': ['dataset_id']}, name='celery:embedding_by_dataset')
@@ -96,6 +120,11 @@ def embedding_by_problem(args, model_id):
     """
     embedding_model = get_embedding_model(model_id)
     ListenerManagement.embedding_by_problem(args, embedding_model)
+
+
+def embedding_by_data_list(args: List, model_id):
+    embedding_model = get_embedding_model(model_id)
+    ListenerManagement.embedding_by_data_list(args, embedding_model)
 
 
 def delete_embedding_by_document(document_id):
@@ -183,18 +212,16 @@ def update_problem_embedding(problem_id: str, problem_content: str, model_id):
     ListenerManagement.update_problem(UpdateProblemArgs(problem_id, problem_content, model))
 
 
-def update_embedding_dataset_id(paragraph_id_list, target_dataset_id, target_embedding_model_id=None):
+def update_embedding_dataset_id(paragraph_id_list, target_dataset_id):
     """
     修改向量数据到指定知识库
     @param paragraph_id_list: 指定段落的向量数据
     @param target_dataset_id: 知识库id
-    @param target_embedding_model_id: 目标知识库
     @return:
     """
-    target_embedding_model = get_embedding_model(
-        target_embedding_model_id) if target_embedding_model_id is not None else None
+
     ListenerManagement.update_embedding_dataset_id(
-        UpdateEmbeddingDatasetIdArgs(paragraph_id_list, target_dataset_id, target_embedding_model))
+        UpdateEmbeddingDatasetIdArgs(paragraph_id_list, target_dataset_id))
 
 
 def delete_embedding_by_paragraph_ids(paragraph_ids: List[str]):
