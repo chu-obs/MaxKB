@@ -7,3 +7,8 @@ updates:
       timezone: "Asia/Shanghai"
       day: "friday"
     target-branch: "v2"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
